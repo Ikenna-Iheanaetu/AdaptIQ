@@ -1,8 +1,15 @@
+import HeroSection from '@/components/landing/HeroSection';
+import HowItWorksSection from '@/components/landing/HowItWorksSection';
+import TopicsSection from '@/components/landing/TopicsSection';
+import CtaFooter from '@/components/landing/CtaFooter';
+
 export default function LandingPage() {
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold">Landing</h1>
-      <p className="text-muted-foreground mt-2">Coming soon.</p>
+    <div className="min-h-screen">
+      <HeroSection />
+      <HowItWorksSection />
+      <TopicsSection />
+      <CtaFooter />
     </div>
   );
 }
