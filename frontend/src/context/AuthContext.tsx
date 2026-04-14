@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { getMe } from '@/api/authApi';
 
 interface User {
   id: string;
@@ -22,8 +23,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // TODO: fetch current user from GET /api/v1/users/me using stored token
-    setLoading(false);
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    getMe()
+      .then((userData) => setUser(userData))
+      .catch(() => {
+        // The axiosInstance 401 interceptor already removes the token from localStorage
+        // and does a hard redirect to /login before this catch handler runs.
+        // setToken(null) here handles non-401 failures (network error, 500, etc.)
+        // and keeps React state consistent in case the redirect hasn't fired yet.
+        setToken(null);
+      })
+      .finally(() => setLoading(false));
   }, [token]);
 
   const login = (jwtToken: string, userData: User) => {
