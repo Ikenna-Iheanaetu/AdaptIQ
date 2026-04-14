@@ -13,6 +13,8 @@ backend/.env
 
 # ── Claude Code ──────────────────────────
 CLAUDE.md
+memory
+docs
 
 # ── IDEs ─────────────────────────────────
 .idea/

@@ -115,17 +115,21 @@ pnpm dev
 com.adaptiq.adaptiq_backend
 ├── AdaptiqBackendApplication.java   Entry point
 ├── config/
-│   └── CorsConfig.java              CORS configuration (allowed origins)
+│   ├── CorsConfig.java              CORS configuration (allowed origins)
+│   └── DataInitializer.java         Seeds 6 topics on startup (idempotent)
 ├── controller/
 │   ├── AuthController.java          POST /auth/register, POST /auth/login
-│   └── UserController.java          GET  /users/me
+│   ├── UserController.java          GET  /users/me
+│   └── TopicController.java         GET  /topics, GET /topics/{id}
 ├── dto/
 │   ├── request/
 │   │   ├── LoginRequest.java        { email, password }
 │   │   └── RegisterRequest.java     { email, password (≥8), name }
 │   └── response/
 │       ├── AuthResponse.java        { token, id, email, name }
-│       └── UserResponse.java        { id, email, name }
+│       ├── UserResponse.java        { id, email, name }
+│       ├── TopicDetailResponse.java   Combined topic + progress + recent attempts
+│       └── RecentAttemptDTO.java      Nested DTO for recent quiz attempts
 ├── exception/
 │   ├── BadRequestException.java     → HTTP 400
 │   ├── ResourceNotFoundException.java → HTTP 404
@@ -140,7 +144,8 @@ com.adaptiq.adaptiq_backend
 │   ├── SecurityConfig.java          SecurityFilterChain, PasswordEncoder, AuthManager
 │   └── UserDetailsServiceImpl.java  Loads UserDetails by email
 └── service/
-    └── AuthService.java             register() and login() business logic
+    ├── AuthService.java             register() and login() business logic
+    └── TopicService.java            listTopics(), getTopicDetail()
 ```
 
 ### 4.2 Security Layer
@@ -198,6 +203,13 @@ Uses `setAllowedOriginPatterns` (not `setAllowedOrigins`) to work correctly with
 |---|---|---|
 | `GET` | `/api/v1/users/me` | `200 OK` + `UserResponse` |
 
+#### Topics — requires `Authorization: Bearer <token>`
+
+| Method | Path | Response |
+| --- | --- | --- |
+| `GET` | `/api/v1/topics` | `200 OK` + `List<TopicResponse>` |
+| `GET` | `/api/v1/topics/{id}` | `200 OK` + `TopicDetailResponse` |
+
 ### 4.4 DTOs
 
 #### `LoginRequest`
@@ -240,6 +252,31 @@ Validation errors also include per-field entries:
 { "password": "Password must be at least 8 characters", "message": "Validation failed" }
 ```
 
+#### `TopicResponse`
+
+```json
+{ "id": "uuid", "name": "Python", "description": "Beginner-friendly scripting and general-purpose programming" }
+```
+
+#### `TopicDetailResponse`
+
+```json
+{
+  "id": "uuid",
+  "name": "Python",
+  "description": "Beginner-friendly scripting and general-purpose programming",
+  "averageScore": 74,
+  "bestScore": 90,
+  "quizzesTaken": 5,
+  "lastQuizDate": "2026-04-10",
+  "recentAttempts": [
+    { "attemptId": "uuid", "score": 85, "totalQuestions": 10, "completedAt": "2026-04-10T14:00:00" }
+  ]
+}
+```
+
+Fields default to `0` / `null` / `[]` when the user has no progress on that topic.
+
 ### 4.5 Data Model
 
 #### `users` table
@@ -252,6 +289,28 @@ Validation errors also include per-field entries:
 | `name` | VARCHAR | nullable |
 
 Schema is managed by `spring.jpa.hibernate.ddl-auto=update` — Hibernate creates/alters tables automatically. Set to `validate` or `none` in production.
+
+#### `topics` table
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | UUID | Primary key, generated |
+| `name` | VARCHAR | NOT NULL |
+| `description` | VARCHAR | nullable |
+
+Seeded on startup by `DataInitializer` with 6 topics: Python, JavaScript, Java, Databases, Data Structures & Algorithms, Cloud Computing.
+
+#### `user_topic_progress` table
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | UUID | Primary key, generated |
+| `user_id` | UUID | FK → users |
+| `topic_id` | UUID | FK → topics |
+| `score` | INT | average score |
+| `attempts` | INT | total quizzes taken |
+| `best_score` | INT | highest score achieved |
+| `last_quiz_date` | DATE | date of most recent attempt |
 
 ### 4.6 Exception Handling
 
@@ -518,4 +577,4 @@ No tests yet. Planned: Vitest + React Testing Library for component tests.
 
 ---
 
-*Last updated: 2026-04-14 — covers authentication feature (feature/authentication branch).*
+*Last updated: 2026-04-14 — covers authentication (feature/authentication) and topics data layer (feature/topics).*

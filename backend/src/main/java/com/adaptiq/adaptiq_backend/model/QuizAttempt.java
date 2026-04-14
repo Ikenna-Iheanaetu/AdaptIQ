@@ -20,5 +20,6 @@ public class QuizAttempt {
     private Topic topic;
 
     private int score;
+    private int totalQuestions;
     private LocalDateTime completedAt;
 }
