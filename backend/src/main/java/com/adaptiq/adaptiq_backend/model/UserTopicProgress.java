@@ -2,6 +2,7 @@ package com.adaptiq.adaptiq_backend.model;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Data
@@ -20,4 +21,6 @@ public class UserTopicProgress {
 
     private int score;
     private int attempts;
+    private int bestScore;
+    private LocalDate lastQuizDate;
 }
