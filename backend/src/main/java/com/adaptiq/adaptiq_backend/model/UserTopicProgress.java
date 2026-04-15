@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.Data;
 import java.time.LocalDate;
 import java.util.UUID;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 
 @Data
 @Entity
@@ -23,4 +25,6 @@ public class UserTopicProgress {
     private int attempts;
     private int bestScore;
     private LocalDate lastQuizDate;
+    @Enumerated(EnumType.STRING)
+    private com.adaptiq.adaptiq_backend.model.enums.ProficiencyLevel proficiencyLevel;
 }

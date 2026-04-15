@@ -120,24 +120,44 @@ com.adaptiq.adaptiq_backend
 ├── controller/
 │   ├── AuthController.java          POST /auth/register, POST /auth/login
 │   ├── UserController.java          GET  /users/me
-│   └── TopicController.java         GET  /topics, GET /topics/{id}
+│   ├── TopicController.java         GET  /topics, GET /topics/{id}
+│   └── DiagnosticController.java    GET /diagnostic/status, POST /diagnostic/start,
+│                                    POST /diagnostic/{attemptId}/answer,
+│                                    POST /diagnostic/{attemptId}/complete,
+│                                    POST /diagnostic/skip
 ├── dto/
 │   ├── request/
 │   │   ├── LoginRequest.java        { email, password }
-│   │   └── RegisterRequest.java     { email, password (≥8), name }
+│   │   ├── RegisterRequest.java     { email, password (≥8), name }
+│   │   └── DiagnosticAnswerRequest.java  { questionId, answer }
 │   └── response/
 │       ├── AuthResponse.java        { token, id, email, name }
 │       ├── UserResponse.java        { id, email, name }
 │       ├── TopicDetailResponse.java   Combined topic + progress + recent attempts
-│       └── RecentAttemptDTO.java      Nested DTO for recent quiz attempts
+│       ├── RecentAttemptDTO.java      Nested DTO for recent quiz attempts
+│       ├── DiagnosticQuestionResponse.java  { questionId, attemptId, position, total, questionText, questionType, options }
+│       ├── DiagnosticAnswerResponse.java    { isCorrect, correctAnswer, explanation, currentPosition, total, isLastQuestion, nextQuestion }
+│       └── DiagnosticCompleteResponse.java  { overallScore, correctAnswers, totalQuestions }
 ├── exception/
 │   ├── BadRequestException.java     → HTTP 400
 │   ├── ResourceNotFoundException.java → HTTP 404
 │   └── GlobalExceptionHandler.java  @RestControllerAdvice
 ├── model/
-│   └── User.java                    JPA entity — users table
+│   ├── User.java                    JPA entity — users table
+│   ├── Topic.java                   JPA entity — topics table
+│   ├── QuizAttempt.java             JPA entity — quiz_attempts table (updated: topicId UUID, isDiagnostic, correctAnswers, startedAt, difficultyStart, difficultyEnd)
+│   ├── QuizQuestion.java            JPA entity — quiz_questions table (updated: topicId UUID, attemptId, questionType, learnerAnswer, isCorrect, explanation)
+│   ├── UserTopicProgress.java       JPA entity — user_topic_progress table (updated: + proficiencyLevel)
+│   └── enums/
+│       ├── DifficultyLevel.java     BEGINNER, INTERMEDIATE, ADVANCED
+│       ├── QuestionType.java        MCQ, TRUE_FALSE, FILL_BLANK
+│       └── ProficiencyLevel.java    BEGINNER, INTERMEDIATE, ADVANCED
 ├── repository/
-│   └── UserRepository.java          findByEmail, existsByEmail
+│   ├── UserRepository.java          findByEmail, existsByEmail
+│   ├── TopicRepository.java         (JpaRepository default)
+│   ├── QuizAttemptRepository.java   findTop5ByTopicIdAndUserId…, findByUserIdAndIsDiagnosticTrue, existsByUserIdAndIsDiagnosticTrueAndCompletedAtIsNotNull
+│   ├── QuizQuestionRepository.java  findByAttemptId
+│   └── UserTopicProgressRepository.java  findByUserIdAndTopicId, existsByUserIdAndTopicId
 ├── security/
 │   ├── JwtUtil.java                 generateToken / extractEmail / isTokenValid
 │   ├── JwtAuthFilter.java           OncePerRequestFilter — validates Bearer token
@@ -145,7 +165,9 @@ com.adaptiq.adaptiq_backend
 │   └── UserDetailsServiceImpl.java  Loads UserDetails by email
 └── service/
     ├── AuthService.java             register() and login() business logic
-    └── TopicService.java            listTopics(), getTopicDetail()
+    ├── TopicService.java            listTopics(), getTopicDetail()
+    ├── AIQuestionService.java       generateQuestion() via OpenAI GPT-4o; GeneratedQuestion record
+    └── DiagnosticService.java       hasCompletedDiagnostic, startDiagnostic, submitAnswer, completeDiagnostic, skipDiagnostic
 ```
 
 ### 4.2 Security Layer
@@ -209,6 +231,16 @@ Uses `setAllowedOriginPatterns` (not `setAllowedOrigins`) to work correctly with
 | --- | --- | --- |
 | `GET` | `/api/v1/topics` | `200 OK` + `List<TopicResponse>` |
 | `GET` | `/api/v1/topics/{id}` | `200 OK` + `TopicDetailResponse` |
+
+#### Diagnostic — requires `Authorization: Bearer <token>`
+
+| Method | Path | Request body | Response |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/diagnostic/status` | — | `200 OK` + `{ "completed": boolean }` |
+| `POST` | `/api/v1/diagnostic/start` | — | `200 OK` + `DiagnosticQuestionResponse` (first question) |
+| `POST` | `/api/v1/diagnostic/{attemptId}/answer` | `DiagnosticAnswerRequest` | `200 OK` + `DiagnosticAnswerResponse` |
+| `POST` | `/api/v1/diagnostic/{attemptId}/complete` | — | `200 OK` + `DiagnosticCompleteResponse` |
+| `POST` | `/api/v1/diagnostic/skip` | — | `200 OK` + `{ "message": "Diagnostic skipped." }` |
 
 ### 4.4 DTOs
 
@@ -277,6 +309,46 @@ Validation errors also include per-field entries:
 
 Fields default to `0` / `null` / `[]` when the user has no progress on that topic.
 
+#### `DiagnosticAnswerRequest`
+
+```json
+{ "questionId": "uuid", "answer": "Functions" }
+```
+
+#### `DiagnosticQuestionResponse`
+
+```json
+{
+  "questionId": "uuid",
+  "attemptId": "uuid",
+  "position": 1,
+  "total": 10,
+  "questionText": "What is a function in Python?",
+  "questionType": "MCQ",
+  "options": ["Variable", "Loop", "Function", "Class"]
+}
+```
+
+#### `DiagnosticAnswerResponse`
+
+```json
+{
+  "isCorrect": true,
+  "correctAnswer": "Function",
+  "explanation": "A function is a reusable block of code.",
+  "currentPosition": 1,
+  "total": 10,
+  "isLastQuestion": false,
+  "nextQuestion": { }
+}
+```
+
+#### `DiagnosticCompleteResponse`
+
+```json
+{ "overallScore": 70, "correctAnswers": 7, "totalQuestions": 10 }
+```
+
 ### 4.5 Data Model
 
 #### `users` table
@@ -311,6 +383,7 @@ Seeded on startup by `DataInitializer` with 6 topics: Python, JavaScript, Java, 
 | `attempts` | INT | total quizzes taken |
 | `best_score` | INT | highest score achieved |
 | `last_quiz_date` | DATE | date of most recent attempt |
+| `proficiency_level` | VARCHAR | `BEGINNER`, `INTERMEDIATE`, or `ADVANCED` (stored as enum string) |
 
 ### 4.6 Exception Handling
 

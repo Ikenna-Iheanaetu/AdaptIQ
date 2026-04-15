@@ -16,10 +16,17 @@ public class QuizAttempt {
     @ManyToOne
     private User user;
 
-    @ManyToOne
-    private Topic topic;
+    private UUID topicId;
 
     private int score;
     private int totalQuestions;
     private LocalDateTime completedAt;
+
+    @Column(nullable = false)
+    private boolean isDiagnostic = false;
+
+    private Integer correctAnswers;
+    private LocalDateTime startedAt;
+    private String difficultyStart;
+    private String difficultyEnd;
 }

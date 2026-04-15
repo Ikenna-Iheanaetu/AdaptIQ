@@ -12,8 +12,7 @@ public class QuizQuestion {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @ManyToOne
-    private Topic topic;
+    private UUID topicId;
 
     @Column(columnDefinition = "TEXT")
     private String questionText;
@@ -23,4 +22,13 @@ public class QuizQuestion {
 
     private String correctAnswer;
     private String difficulty;
+
+    private UUID attemptId;
+    private Integer orderIndex;
+    private String questionType;
+    private String learnerAnswer;
+    private Boolean isCorrect;
+
+    @Column(columnDefinition = "TEXT")
+    private String explanation;
 }

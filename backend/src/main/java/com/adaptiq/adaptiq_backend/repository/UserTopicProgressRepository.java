@@ -7,4 +7,5 @@ import java.util.UUID;
 
 public interface UserTopicProgressRepository extends JpaRepository<UserTopicProgress, UUID> {
     Optional<UserTopicProgress> findByUserIdAndTopicId(UUID userId, UUID topicId);
+    boolean existsByUserIdAndTopicId(UUID userId, UUID topicId);
 }
