@@ -121,23 +121,35 @@ com.adaptiq.adaptiq_backend
 │   ├── AuthController.java          POST /auth/register, POST /auth/login
 │   ├── UserController.java          GET  /users/me
 │   ├── TopicController.java         GET  /topics, GET /topics/{id}
-│   └── DiagnosticController.java    GET /diagnostic/status, POST /diagnostic/start,
-│                                    POST /diagnostic/{attemptId}/answer,
-│                                    POST /diagnostic/{attemptId}/complete,
-│                                    POST /diagnostic/skip
+│   ├── DiagnosticController.java    GET /diagnostic/status, POST /diagnostic/start,
+│   │                                POST /diagnostic/{attemptId}/answer,
+│   │                                POST /diagnostic/{attemptId}/complete,
+│   │                                POST /diagnostic/skip
+│   ├── QuizController.java          POST /quiz/start, POST /quiz/{attemptId}/answer,
+│   │                                POST /quiz/{attemptId}/complete,
+│   │                                GET  /quiz/{attemptId}/summary
+│   └── ProgressController.java      GET /progress/dashboard, GET /progress/history,
+│                                    GET /progress/topics
 ├── dto/
 │   ├── request/
 │   │   ├── LoginRequest.java        { email, password }
 │   │   ├── RegisterRequest.java     { email, password (≥8), name }
-│   │   └── DiagnosticAnswerRequest.java  { questionId, answer }
+│   │   ├── DiagnosticAnswerRequest.java  { questionId, answer }
+│   │   └── StartQuizRequest.java    { topicId, questionCount }
 │   └── response/
 │       ├── AuthResponse.java        { token, id, email, name }
 │       ├── UserResponse.java        { id, email, name }
+│       ├── TopicResponse.java       { id, name, description }
 │       ├── TopicDetailResponse.java   Combined topic + progress + recent attempts
 │       ├── RecentAttemptDTO.java      Nested DTO for recent quiz attempts
 │       ├── DiagnosticQuestionResponse.java  { questionId, attemptId, position, total, questionText, questionType, options }
 │       ├── DiagnosticAnswerResponse.java    { isCorrect, correctAnswer, explanation, currentPosition, total, isLastQuestion, nextQuestion }
-│       └── DiagnosticCompleteResponse.java  { overallScore, correctAnswers, totalQuestions }
+│       ├── DiagnosticCompleteResponse.java  { overallScore, correctAnswers, totalQuestions }
+│       ├── QuizCompleteResponse.java  { attemptId, score, correctAnswers, totalQuestions }
+│       ├── QuizSummaryResponse.java   { score, correctAnswers, totalQuestions, durationSeconds, questions[] }
+│       ├── DashboardResponse.java     { totalAttempts, averageScore, streakDays, strongestTopicName, weakestTopicName, topicProgress[], recommendations[], recentScores[] }
+│       ├── TopicProgressItem.java     { topicId, topicName, topicDescription, proficiencyLevel, averageScore, attempts, lastQuizDate }
+│       └── HistoryAttemptDTO.java     { attemptId, topicId, topicName, score, totalQuestions, completedAt, difficultyStart, difficultyEnd }
 ├── exception/
 │   ├── BadRequestException.java     → HTTP 400
 │   ├── ResourceNotFoundException.java → HTTP 404
@@ -167,7 +179,9 @@ com.adaptiq.adaptiq_backend
     ├── AuthService.java             register() and login() business logic
     ├── TopicService.java            listTopics(), getTopicDetail()
     ├── AIQuestionService.java       generateQuestion() via OpenAI GPT-4o; GeneratedQuestion record
-    └── DiagnosticService.java       hasCompletedDiagnostic, startDiagnostic, submitAnswer, completeDiagnostic, skipDiagnostic
+    ├── DiagnosticService.java       hasCompletedDiagnostic, startDiagnostic, submitAnswer, completeDiagnostic, skipDiagnostic
+    ├── QuizService.java             startAttempt, submitAnswer, completeAttempt, getSummary — upserts UserTopicProgress on complete
+    └── ProgressService.java         getDashboard, getHistory, getTopicProgress
 ```
 
 ### 4.2 Security Layer
@@ -241,6 +255,23 @@ Uses `setAllowedOriginPatterns` (not `setAllowedOrigins`) to work correctly with
 | `POST` | `/api/v1/diagnostic/{attemptId}/answer` | `DiagnosticAnswerRequest` | `200 OK` + `DiagnosticAnswerResponse` |
 | `POST` | `/api/v1/diagnostic/{attemptId}/complete` | — | `200 OK` + `DiagnosticCompleteResponse` |
 | `POST` | `/api/v1/diagnostic/skip` | — | `200 OK` + `{ "message": "Diagnostic skipped." }` |
+
+#### Quiz — requires `Authorization: Bearer <token>`
+
+| Method | Path | Request body | Response |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/quiz/start` | `StartQuizRequest` | `200 OK` + `DiagnosticQuestionResponse` (first question) |
+| `POST` | `/api/v1/quiz/{attemptId}/answer` | `DiagnosticAnswerRequest` | `200 OK` + `DiagnosticAnswerResponse` |
+| `POST` | `/api/v1/quiz/{attemptId}/complete` | — | `200 OK` + `QuizCompleteResponse` |
+| `GET` | `/api/v1/quiz/{attemptId}/summary` | — | `200 OK` + `QuizSummaryResponse` |
+
+#### Progress — requires `Authorization: Bearer <token>`
+
+| Method | Path | Response |
+| --- | --- | --- |
+| `GET` | `/api/v1/progress/dashboard` | `200 OK` + `DashboardResponse` |
+| `GET` | `/api/v1/progress/history` | `200 OK` + `List<HistoryAttemptDTO>` (newest first, non-diagnostic only) |
+| `GET` | `/api/v1/progress/topics` | `200 OK` + `List<TopicProgressItem>` (all topics merged with user progress) |
 
 ### 4.4 DTOs
 
@@ -349,6 +380,69 @@ Fields default to `0` / `null` / `[]` when the user has no progress on that topi
 { "overallScore": 70, "correctAnswers": 7, "totalQuestions": 10 }
 ```
 
+#### `StartQuizRequest`
+
+```json
+{ "topicId": "uuid", "questionCount": 10 }
+```
+
+#### `DashboardResponse`
+
+```json
+{
+  "totalAttempts": 12,
+  "averageScore": 74,
+  "streakDays": 3,
+  "strongestTopicName": "Python",
+  "weakestTopicName": "Databases",
+  "topicProgress": [ { "topicId": "uuid", "topicName": "Python", "topicDescription": "...", "proficiencyLevel": "ADVANCED", "averageScore": 88, "attempts": 5, "lastQuizDate": "2026-05-14" } ],
+  "recommendations": [ { "id": "uuid", "name": "JavaScript", "description": "..." } ],
+  "recentScores": [ { "attemptId": "uuid", "score": 80, "totalQuestions": 10, "completedAt": "2026-05-14T10:00:00" } ]
+}
+```
+
+#### `TopicProgressItem`
+
+```json
+{ "topicId": "uuid", "topicName": "Python", "topicDescription": "...", "proficiencyLevel": "ADVANCED", "averageScore": 88, "attempts": 5, "lastQuizDate": "2026-05-14" }
+```
+
+`proficiencyLevel` is `null` when the user has no attempts on that topic.
+
+#### `HistoryAttemptDTO`
+
+```json
+{ "attemptId": "uuid", "topicId": "uuid", "topicName": "Python", "score": 80, "totalQuestions": 10, "completedAt": "2026-05-14T10:00:00", "difficultyStart": "BEGINNER", "difficultyEnd": "INTERMEDIATE" }
+```
+
+#### `QuizCompleteResponse`
+
+```json
+{ "attemptId": "uuid", "score": 80, "correctAnswers": 8, "totalQuestions": 10 }
+```
+
+#### `QuizSummaryResponse`
+
+```json
+{
+  "score": 80,
+  "correctAnswers": 8,
+  "totalQuestions": 10,
+  "durationSeconds": 342,
+  "questions": [
+    {
+      "questionText": "What is a closure?",
+      "questionType": "MCQ",
+      "options": ["A", "B", "C", "D"],
+      "learnerAnswer": "A",
+      "correctAnswer": "A",
+      "isCorrect": true,
+      "explanation": "A closure captures variables from its enclosing scope."
+    }
+  ]
+}
+```
+
 ### 4.5 Data Model
 
 #### `users` table
@@ -424,9 +518,9 @@ frontend/src/
 ├── api/
 │   ├── axiosInstance.ts     Axios base config + auth interceptors
 │   ├── authApi.ts           login(), register(), getMe()
-│   ├── progressApi.ts       (stub)
-│   ├── quizApi.ts           (stub)
-│   └── topicsApi.ts         (stub)
+│   ├── topicsApi.ts         getTopics(), getTopicDetail() — TopicItem, TopicDetailItem types
+│   ├── progressApi.ts       getDashboard(), getHistory(), getTopicProgress() — DashboardData, HistoryAttempt, TopicProgressItem types
+│   └── quizApi.ts           startQuiz(), submitAnswer(), completeQuiz(), getQuizSummary() — QuizQuestion, AnswerFeedback, QuizSummaryData types
 ├── components/
 │   ├── landing/             HeroSection, HowItWorksSection, TopicsSection, CtaFooter, ParticleCanvas
 │   ├── layout/              AppLayout (authenticated shell + navbar)
@@ -508,7 +602,7 @@ Provides `{ user, token, login, logout, loading }` to the entire app.
 
 ### 5.4 API Layer
 
-All API functions live in `src/api/authApi.ts` and return typed promises via `axiosInstance`.
+All API functions live in `src/api/` and return typed promises via `axiosInstance`. Each module owns one domain.
 
 ```typescript
 // Types
@@ -530,6 +624,57 @@ setApiError(errData?.message ?? 'Fallback error message');
 ```
 
 ### 5.5 Pages
+
+#### `DashboardPage` (`/dashboard`)
+
+- Fetches `GET /progress/dashboard` on mount
+- Greeting: time-aware ("Good morning/afternoon/evening, Name")
+- 4 stat cards: circular SVG score ring, quizzes completed, strongest topic, weakest topic
+- Score history bar chart (recharts `BarChart`) with weekly/monthly toggle
+- Recommended topics panel (up to 2 cards) with "Start Quiz" buttons
+- Topics table: proficiency badge, mini progress bar, last quiz date
+
+#### `TopicLibraryPage` (`/topics`)
+
+- Parallel fetches `GET /topics` and `GET /progress/topics`; merges by `topicId`
+- Client-side search filter on topic name/description
+- 3-column responsive grid of topic cards with proficiency badge, progress bar, "Start Quiz" button
+- AI Recommendation banner + 4-stat footer (Total Topics, Mastered ≥80%)
+
+#### `TopicDetailPage` (`/topics/:topicId`)
+
+- Fetches `GET /topics/:topicId`
+- Two-column layout: left = SVG score ring + stats + performance history table; right = sticky "Start Session" panel
+- Question count selector (10 / 15 / 20); "Start Quiz" calls `POST /quiz/start` then navigates to `/quiz/:attemptId` passing first question in route state
+
+#### `QuizPage` (`/quiz/:attemptId`)
+
+- Standalone page (outside `AppLayout`)
+- Receives first question via `useLocation().state` (passed from TopicDetailPage)
+- Phase machine: `question → feedback → finishing`
+- Reuses `AnswerOption` and `FeedbackBanner` components from diagnostic quiz
+- Submit → `POST /quiz/:attemptId/answer`; last question triggers `POST /quiz/:attemptId/complete` then navigates to summary
+
+#### `QuizSummaryPage` (`/quiz/:attemptId/summary`)
+
+- Fetches `GET /quiz/:attemptId/summary`
+- SVG score ring + rating label (Outstanding / Good Job / Keep Going)
+- 6-stat grid: correct, accuracy, incorrect, errors, duration, avg time
+- Expandable question review accordion (wrong answers show learner vs correct answer + AI Insight)
+- "Next for You" static 3-card strip
+
+#### `QuizHistoryPage` (`/history`)
+
+- Fetches `GET /progress/history`
+- Client-side filters: topic dropdown + time range (7 / 30 / 90 days)
+- Paginated table (10 per page): date, topic icon, score badge (green/orange/red), difficulty range bar, "View Details" link
+- Historical Velocity stats + AI Recommendation card (purple gradient)
+
+#### `ProfilePage` (`/profile`)
+
+- No extra API calls — uses `useAuth()` for name/email
+- Two-column: left sidebar with avatar (initials), nav (Profile / Privacy / Billing); right = Account Settings card + Danger Zone
+- Weekly Reports toggle (local state only); Delete Account shows browser confirm dialog
 
 #### `LoginPage`
 - Split-panel layout (left = brand, right = form)
@@ -650,4 +795,4 @@ No tests yet. Planned: Vitest + React Testing Library for component tests.
 
 ---
 
-*Last updated: 2026-04-14 — covers authentication (feature/authentication) and topics data layer (feature/topics).*
+*Last updated: 2026-05-14 — covers authentication, diagnostic quiz, topics, quiz flow (QuizService/Controller), progress/dashboard (ProgressService/Controller), and all frontend pages (Dashboard, Topics, Topic Detail, Quiz, Quiz Summary, Quiz History, Profile, AppLayout NavBar).*
