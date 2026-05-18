@@ -55,6 +55,12 @@ public class AIQuestionService {
             You are a coding quiz generator for AdaptIQ.
             Generate a %s question about %s.
             Difficulty: %s (%s). Question type: %s.
+
+            UNIQUENESS RULES — you must follow all of these:
+            - Ask about a SPECIFIC concept, behaviour, or edge case — never a generic "what is X?" question.
+            - Each question must test a different concept. Do NOT repeat the same idea in different wording.
+            - Vary the angle: alternate between syntax, output prediction, error identification, and best-practice questions.
+            - If this is not the first question, ensure it covers a completely different sub-topic than the ones listed below.
             %s
 
             Respond ONLY with valid JSON, no markdown:
@@ -67,7 +73,7 @@ public class AIQuestionService {
             Rules:
             - options: exactly 4 items for MCQ, exactly 2 for TRUE_FALSE, empty [] for FILL_BLANK
             - correctAnswer must match one of the options (for MCQ/TRUE_FALSE) or be the expected phrase (FILL_BLANK)
-            - explanation: 1-2 sentences
+            - explanation: 1-2 sentences explaining WHY the answer is correct
             """,
             questionType.name().toLowerCase().replace("_", " "),
             topicName, difficulty.name(), difficultyDesc, typeDesc, avoidSection
